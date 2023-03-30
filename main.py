@@ -1,41 +1,54 @@
 import requests
-import xml.etree.ElementTree as ET
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 # Set up Google Sheets API credentials
-SERVICE_ACCOUNT_FILE = 'path/to/your/service_account_key.json'
+
+# Path to Service Key
+SERVICE_ACCOUNT_FILE = 'propertyvision-381813-860b0e15663b.json'
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-SPREADSHEET_ID = 'your_spreadsheet_id'
+# ID is located here in the URL = https://docs.google.com/spreadsheets/d/spreadsheetId
+SPREADSHEET_ID = '1I5UxZFOrAeTwaLb45SARNli2uLgrlmQ8EvLYAfh6QYs'
 
-creds = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, SCOPES)
+creds = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE).with_scopes(SCOPES)
 service = build('sheets', 'v4', credentials=creds)
+# Set up RapidAPI Zillow API credentials
+RAPIDAPI_KEY = ""
+location = '48307'
 
-# Define the function to fetch house listings from Zillow
-def fetch_zillow_listings(zipcode, api_key):
-    url = f"http://www.zillow.com/webservice/GetSearchResults.htm?zws-id={api_key}&address=&citystatezip={zipcode}"
-    response = requests.get(url)
-    root = ET.fromstring(response.content)
 
-    house_data = []
-    for result in root.findall('.//result'):
-        try:
-            address = result.find('./address/street').text
-            zipcode = result.find('./address/zipcode').text
-            city = result.find('./address/city').text
-            state = result.find('./address/state').text
-            zestimate = result.find('./zestimate/amount').text
-            house_data.append([address, city, state, zipcode, zestimate])
-        except AttributeError:
-            continue
-    return house_data
+# Define the function to get house listings from Zillow
+def get_zillow_listings(location):
+    url = "https://zillow-com1.p.rapidapi.com/propertyExtendedSearch"
+    querystring = {"location": location, "home_type": "Houses"}
+    headers = {
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": "zillow-com1.p.rapidapi.com"
+    }
 
-# Fetch house listings for the specified ZIP code
-ZIPCODE = '48307'
-API_KEY = 'YOUR_ZILLOW_API_KEY'
-listings = fetch_zillow_listings(ZIPCODE, API_KEY)
+    response = requests.request("GET", url, headers=headers, params=querystring)
+    return response.json()
+
+# Get house listings for the specified location
+listings = get_zillow_listings(location)
+print(listings)
+
+# Process the listings and extract required data
+house_data = []
+for listing in listings['props']:
+    zpid = listing['zpid']
+    address = listing['address']
+    price = listing['price']
+    bedrooms = listing['bedrooms']
+    bathrooms = listing['bathrooms']
+    living_area = listing['livingArea']
+    property_type = listing['propertyType']
+    price_per_sqft = price / living_area
+
+    house_data.append([zpid, address, price, bedrooms, bathrooms, living_area, property_type, price_per_sqft])
 
 # Write the listings to the Google Sheet
-range_name = 'Sheet1!A1'
-body = {'values': [['Address', 'City', 'State', 'ZIP Code', 'Zestimate']] + listings}
+range_name = '48307!A1'
+header = [['zpid', 'Address', 'Price', 'Bedrooms', 'Bathrooms', 'Living Area', 'Property Type', 'PP Sqft']]
+body = {'values': header + house_data}
 result = service.spreadsheets().values().update(spreadsheetId=SPREADSHEET_ID, range=range_name, valueInputOption='RAW', body=body).execute()
